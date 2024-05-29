@@ -112,12 +112,15 @@ func (a *Service) SaveGroupContact(ctx context.Context, data *GroupContact) (err
 		return
 	}
 
-	content := a.convertMessageContent(messages)
+	content, err := a.convertMessageContent(ctx, messages, true)
+	if err != nil {
+		return
+	}
 	if err = a.rep.SaveMessageContent(ctx, msgName, content); err != nil {
 		return
 	}
 
-	if err = a.AddSyncTask(ctx, msgName, data.DBName); err != nil {
+	if err = a.AddSyncTask(ctx, msgName, data.DBName, true); err != nil {
 		return
 	}
 
@@ -125,13 +128,13 @@ func (a *Service) SaveGroupContact(ctx context.Context, data *GroupContact) (err
 }
 
 func (a *Service) DelGroupContact(ctx context.Context, usrName string) (err error) {
-	msgName := "Chat_" + hex.EncodeToString(util.Md5([]byte(usrName)))
-	err = a.rep.DelMessageContentTable(ctx, msgName)
-	if err != nil {
+	if err = a.rep.DelGroupContactByUsrName(ctx, usrName); err != nil {
 		return
 	}
 
-	if err = a.rep.DelGroupContactByUsrName(ctx, usrName); err != nil {
+	msgName := "Chat_" + hex.EncodeToString(util.Md5([]byte(usrName)))
+	err = a.rep.DelMessageContentTable(ctx, msgName)
+	if err != nil {
 		return
 	}
 

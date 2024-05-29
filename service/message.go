@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/lw396/WeComCopilot/internal/errors"
+	"github.com/lw396/WeComCopilot/internal/model"
 	mysql "github.com/lw396/WeComCopilot/internal/repository/gorm"
 	"github.com/lw396/WeComCopilot/internal/repository/sqlite"
 	"github.com/lw396/WeComCopilot/pkg/db"
@@ -38,7 +39,7 @@ func (a *Service) ScanMessage(ctx context.Context, userName string) (result *Mes
 		break
 	}
 	if seq == nil {
-		err = errors.New(errors.CodeDB, "not found message")
+		err = errors.New(errors.CodeDB, "未找到该消息")
 		return
 	}
 	result = &MessageInfo{
@@ -59,14 +60,20 @@ func (a *Service) GetMessageContent(ctx context.Context, usrName string, offset 
 	return
 }
 
-func (a *Service) convertMessageContent(msg []*sqlite.MessageContent) (result []*mysql.MessageContent) {
+func (a *Service) convertMessageContent(ctx context.Context, msg []*sqlite.MessageContent, isGroup bool) (result []*mysql.MessageContent, err error) {
 	result = make([]*mysql.MessageContent, 0)
 	for _, v := range msg {
+		content := ""
+		content, err = a.GetHinkMedia(ctx, v, isGroup)
+		if err != nil {
+			return
+		}
+
 		result = append(result, &mysql.MessageContent{
 			LocalID:     v.MesLocalID,
 			SvrID:       v.MesSvrID,
 			CreateTime:  v.MsgCreateTime,
-			Content:     v.MsgContent,
+			Content:     content,
 			Status:      v.MsgStatus,
 			ImgStatus:   v.MsgImgStatus,
 			MessageType: v.MessageType,
@@ -75,6 +82,27 @@ func (a *Service) convertMessageContent(msg []*sqlite.MessageContent) (result []
 			VoiceText:   v.MsgVoiceText,
 			Seq:         v.MsgSeq,
 		})
+	}
+	return
+}
+
+func (a *Service) GetHinkMedia(ctx context.Context, data *sqlite.MessageContent, isGroup bool) (result string, err error) {
+	switch data.MessageType {
+	case model.MsgTypeImage:
+		result, err = a.HandleImage(ctx, data.MsgContent, data.MesDes, isGroup)
+		if err != nil {
+			return
+		}
+	// case model.MsgTypeEmoticon:
+
+	// case model.MsgTypeVoice:
+
+	// case model.MsgTypeVideo:
+
+	// case model.MsgTypeMicroVideo:
+
+	default:
+		result = data.MsgContent
 	}
 	return
 }

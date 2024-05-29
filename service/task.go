@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 
 	mysql "github.com/lw396/WeComCopilot/internal/repository/gorm"
 	"github.com/lw396/WeComCopilot/pkg/db"
@@ -17,6 +18,14 @@ type SyncMessageTaskParam struct {
 	DBName  string
 	MsgName string
 	NewId   int64
+	IsGroup bool
+}
+
+func (a *Service) GetCrontab() string {
+	if 0 < a.task.Interval && 60 > a.task.Interval {
+		return fmt.Sprintf("*/%d * * * * *", a.task.Interval)
+	}
+	return a.task.Crontab
 }
 
 func (a *Service) SyncMessage(ctx context.Context) (err error) {
@@ -36,7 +45,10 @@ func (a *Service) SyncMessage(ctx context.Context) (err error) {
 				}
 				return
 			}
-			content := a.convertMessageContent(data)
+			content, err := a.convertMessageContent(ctx, data, param.IsGroup)
+			if err != nil {
+				return
+			}
 			if err = a.rep.SaveMessageContent(ctx, param.MsgName, content); err != nil {
 				return
 			}
@@ -58,14 +70,43 @@ func (a *Service) ConnectMessageDB(ctx context.Context, dbName string) (err erro
 	return
 }
 
+type InitSyncTaskParam struct {
+	UsrName string
+	DBName  string
+	Status  uint8
+	IsGroup bool
+}
+
 func (a *Service) InitSyncTask(ctx context.Context) (err error) {
+	data := []*InitSyncTaskParam{}
 	group, _, err := a.rep.GetGroupContacts(ctx, "", 0)
 	if err != nil {
 		return
 	}
+	for _, v := range group {
+		data = append(data, &InitSyncTaskParam{
+			UsrName: v.UsrName,
+			DBName:  v.DBName,
+			Status:  v.Status,
+			IsGroup: true,
+		})
+	}
+
+	contact, _, err := a.rep.GetContactPersons(ctx, "", 0)
+	if err != nil {
+		return
+	}
+	for _, v := range contact {
+		data = append(data, &InitSyncTaskParam{
+			UsrName: v.UsrName,
+			DBName:  v.DBName,
+			Status:  v.Status,
+			IsGroup: false,
+		})
+	}
 
 	param := make([]SyncMessageTaskParam, 0)
-	for _, v := range group {
+	for _, v := range data {
 		msgName := "Chat_" + hex.EncodeToString(util.Md5([]byte(v.UsrName)))
 		var data *mysql.MessageContent
 		data, err = a.rep.GetNewMessageContent(ctx, msgName)
@@ -85,6 +126,7 @@ func (a *Service) InitSyncTask(ctx context.Context) (err error) {
 			DBName:  v.DBName,
 			MsgName: msgName,
 			NewId:   data.LocalID,
+			IsGroup: true,
 		})
 	}
 
@@ -96,7 +138,7 @@ func (a *Service) InitSyncTask(ctx context.Context) (err error) {
 	return
 }
 
-func (a *Service) AddSyncTask(ctx context.Context, msgName, dbName string) (err error) {
+func (a *Service) AddSyncTask(ctx context.Context, msgName, dbName string, isGroup bool) (err error) {
 	var data *mysql.MessageContent
 	data, err = a.rep.GetNewMessageContent(ctx, msgName)
 	if err != nil {
@@ -116,6 +158,7 @@ func (a *Service) AddSyncTask(ctx context.Context, msgName, dbName string) (err 
 		DBName:  dbName,
 		MsgName: msgName,
 		NewId:   data.LocalID,
+		IsGroup: isGroup,
 	})
 	err = a.redis.Set(ctx, SyncTaskCacheKey, param, 0)
 	if err != nil {

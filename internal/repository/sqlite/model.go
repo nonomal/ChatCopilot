@@ -1,5 +1,9 @@
 package sqlite
 
+import (
+	"github.com/lw396/WeComCopilot/internal/model"
+)
+
 // Group
 type GroupContact struct {
 	UsrName           string `gorm:"column:m_nsUsrName"`
@@ -55,15 +59,38 @@ func (SQLiteSequence) TableName() string {
 }
 
 type MessageContent struct {
-	MesLocalID    int64  `gorm:"column:mesLocalID"`
-	MesSvrID      int64  `gorm:"column:mesSvrID"`
-	MsgCreateTime int64  `gorm:"column:msgCreateTime"`
-	MsgContent    string `gorm:"column:msgContent"`
-	MsgStatus     int64  `gorm:"column:msgStatus"`
-	MsgImgStatus  int64  `gorm:"column:msgImgStatus"`
-	MessageType   int64  `gorm:"column:messageType"`
-	MesDes        int64  `gorm:"column:mesDes"`
-	MsgSource     string `gorm:"column:msgSource"`
-	MsgVoiceText  string `gorm:"column:msgVoiceText"`
-	MsgSeq        int64  `gorm:"column:msgSeq"`
+	MesLocalID    int64             `gorm:"column:mesLocalID"`
+	MesSvrID      int64             `gorm:"column:mesSvrID"`
+	MsgCreateTime int64             `gorm:"column:msgCreateTime"`
+	MsgContent    string            `gorm:"column:msgContent"`
+	MsgStatus     int64             `gorm:"column:msgStatus"`
+	MsgImgStatus  int64             `gorm:"column:msgImgStatus"`
+	MessageType   model.MessageType `gorm:"column:messageType"`
+	MesDes        bool              `gorm:"column:mesDes"`
+	MsgSource     string            `gorm:"column:msgSource"`
+	MsgVoiceText  string            `gorm:"column:msgVoiceText"`
+	MsgSeq        int64             `gorm:"column:msgSeq"`
+}
+
+type HlinkMediaRecord struct {
+	MediaMd5    string           `gorm:"column:mediaMd5"`
+	MediaSize   int64            `gorm:"column:mediaSize"`
+	InodeNumber int64            `gorm:"primary_key;column:inodeNumber"`
+	ModifyTime  int64            `gorm:"column:modifyTime"`
+	Detail      HlinkMediaDetail `gorm:"foreignKey:InodeNumber"`
+}
+
+func (HlinkMediaRecord) TableName() string {
+	return "HlinkMediaRecord"
+}
+
+type HlinkMediaDetail struct {
+	LocalId      int64  `gorm:"column:localId"`
+	InodeNumber  int64  `gorm:"primary_key;column:inodeNumber"`
+	RelativePath string `gorm:"column:relativePath"`
+	FileName     string `gorm:"column:fileName"`
+}
+
+func (HlinkMediaDetail) TableName() string {
+	return "HlinkMediaDetail"
 }
