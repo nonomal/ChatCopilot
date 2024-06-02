@@ -23,3 +23,30 @@ func (a *Api) getMessageContentList(c echo.Context) (err error) {
 	}
 	return OK(c, result)
 }
+
+func (a *Api) getMessageImage(c echo.Context) (err error) {
+	path := c.QueryParam("path")
+	if path == "" {
+		return errors.New(errors.CodeInvalidParam, "path为空")
+	}
+
+	image, err := a.service.GetMessageImage(c.Request().Context(), path)
+	if err != nil {
+		return
+	}
+	return c.File(image)
+}
+
+func (a *Api) getMessageSticker(c echo.Context) (err error) {
+	path, url := c.QueryParam("path"), c.QueryParam("url")
+	if path == "" || url == "" {
+		return errors.New(errors.CodeInvalidParam, "参数错误")
+	}
+
+	image, err := a.service.GetMessageSticker(c.Request().Context(), path, url)
+	if err != nil {
+		return
+	}
+
+	return c.File(image)
+}
