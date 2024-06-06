@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sync"
+	"time"
 
 	mysql "github.com/lw396/WeComCopilot/internal/repository/gorm"
 	"github.com/lw396/WeComCopilot/pkg/db"
@@ -12,7 +13,8 @@ import (
 )
 
 const (
-	SyncTaskCacheKey = "SYNC_TASK_CACHE_PARAM"
+	SyncTaskMessageContent = "SYNC_TASK_MESSAGE_CONTENRT"
+	SyncTaskUnloadedFile   = "SYNC_TASK_UNLOADED_FILE"
 )
 
 type SyncMessageTaskParam struct {
@@ -31,7 +33,7 @@ func (a *Service) GetCrontab() string {
 
 func (a *Service) SyncMessage(ctx context.Context) (err error) {
 	var params []SyncMessageTaskParam
-	_, err = a.redis.Get(ctx, SyncTaskCacheKey, &params)
+	_, err = a.redis.Get(ctx, SyncTaskMessageContent, &params)
 	if err != nil {
 		return
 	}
@@ -50,7 +52,37 @@ func (a *Service) SyncMessage(ctx context.Context) (err error) {
 	}
 	wg.Wait()
 
-	if err = a.redis.Set(ctx, SyncTaskCacheKey, newParams, 0); err != nil {
+	if err = a.redis.Set(ctx, SyncTaskMessageContent, newParams, 0); err != nil {
+		return
+	}
+	return
+}
+
+func (a *Service) SyncUndownloadedMessage(ctx context.Context) (err error) {
+	params := []RecordUndownloadedFileParam{}
+	found, err := a.redis.Get(ctx, SyncTaskUnloadedFile, &params)
+	if err != nil {
+		return
+	}
+	if found && len(params) == 0 {
+		return
+	}
+
+	var now = time.Now()
+	for _, param := range params {
+		if !param.CreatedAt.After(now) {
+			continue
+		}
+		finish, err := a.HandleUndownloadedMessage(ctx, param)
+		if err != nil {
+			return err
+		}
+		if !finish {
+			params = append(params, param)
+		}
+	}
+
+	if err = a.redis.Set(ctx, SyncTaskUnloadedFile, params, 10*time.Minute); err != nil {
 		return
 	}
 	return
@@ -69,7 +101,7 @@ func (a *Service) handleSaveMessageContent(ctx context.Context, param SyncMessag
 		return
 	}
 
-	content, err := a.convertMessageContent(ctx, data, param.IsGroup)
+	content, err := a.HandleMessageContent(ctx, data, param.IsGroup, param.MsgName)
 	if err != nil {
 		return
 	}
@@ -102,7 +134,7 @@ type InitSyncTaskParam struct {
 
 func (a *Service) InitSyncTask(ctx context.Context) (err error) {
 	data := []*InitSyncTaskParam{}
-	group, _, err := a.rep.GetGroupContacts(ctx, "", 0)
+	group, _, err := a.rep.GetGroupContacts(ctx, "", -1)
 	if err != nil {
 		return
 	}
@@ -115,7 +147,7 @@ func (a *Service) InitSyncTask(ctx context.Context) (err error) {
 		})
 	}
 
-	contact, _, err := a.rep.GetContactPersons(ctx, "", 0)
+	contact, _, err := a.rep.GetContactPersons(ctx, "", -1)
 	if err != nil {
 		return
 	}
@@ -128,7 +160,7 @@ func (a *Service) InitSyncTask(ctx context.Context) (err error) {
 		})
 	}
 
-	param := make([]SyncMessageTaskParam, 0)
+	param := []SyncMessageTaskParam{}
 	for _, v := range data {
 		msgName := "Chat_" + hex.EncodeToString(util.Md5([]byte(v.UsrName)))
 		var data *mysql.MessageContent
@@ -153,7 +185,7 @@ func (a *Service) InitSyncTask(ctx context.Context) (err error) {
 		})
 	}
 
-	err = a.redis.Set(ctx, SyncTaskCacheKey, param, 0)
+	err = a.redis.Set(ctx, SyncTaskMessageContent, param, 0)
 	if err != nil {
 		return
 	}
@@ -171,8 +203,8 @@ func (a *Service) AddSyncTask(ctx context.Context, msgName, dbName string, isGro
 		return
 	}
 
-	param := make([]SyncMessageTaskParam, 0)
-	_, err = a.redis.Get(ctx, SyncTaskCacheKey, &param)
+	param := []SyncMessageTaskParam{}
+	_, err = a.redis.Get(ctx, SyncTaskMessageContent, &param)
 	if err != nil {
 		return
 	}
@@ -183,7 +215,7 @@ func (a *Service) AddSyncTask(ctx context.Context, msgName, dbName string, isGro
 		NewId:   data.LocalID,
 		IsGroup: isGroup,
 	})
-	err = a.redis.Set(ctx, SyncTaskCacheKey, param, 0)
+	err = a.redis.Set(ctx, SyncTaskMessageContent, param, 0)
 	if err != nil {
 		return
 	}
@@ -192,21 +224,21 @@ func (a *Service) AddSyncTask(ctx context.Context, msgName, dbName string, isGro
 }
 
 func (a *Service) DelSyncTask(ctx context.Context, usrName string) (err error) {
-	_param := make([]SyncMessageTaskParam, 0)
-	_, err = a.redis.Get(ctx, SyncTaskCacheKey, &_param)
+	_param := []SyncMessageTaskParam{}
+	_, err = a.redis.Get(ctx, SyncTaskMessageContent, &_param)
 	if err != nil {
 		return
 	}
 
 	msgName := "Chat_" + hex.EncodeToString(util.Md5([]byte(usrName)))
-	param := make([]SyncMessageTaskParam, 0)
+	param := []SyncMessageTaskParam{}
 	for _, p := range _param {
 		if p.MsgName == msgName {
 			continue
 		}
 		param = append(param, p)
 	}
-	err = a.redis.Set(ctx, SyncTaskCacheKey, param, 0)
+	err = a.redis.Set(ctx, SyncTaskMessageContent, param, 0)
 	if err != nil {
 		return
 	}
